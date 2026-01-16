@@ -6,10 +6,10 @@ Must keep: POST /runs (batch create), GET /runs/{id} (fetch single)
 Must keep: entire batch written to object storage
 
 ### Benchmarks
-GET 10kb: ~102 ms
-GET 100kb: ~113 ms
-POST 50×100kb: ~550 ms
-POST 500×10kb: ~1900 ms
+GET 10kb: ~102 ms (baseline)
+GET 100kb: ~108 ms (baseline)
+POST 50×100kb: ~549 ms (baseline)
+POST 500×10kb: ~1899 ms (baseline)
 
 Intuition: lot of overhead per call, evident by the fact that GET 10kb vs GET 100kb
 are close to performance and more POST calls are severely worse despite the same
@@ -92,6 +92,35 @@ Assemble response dict
    - String formatting of refs, list appends, loop/indexing, etc. Not worth focusing on early.
 
 ## Section 2: Fixing looped batched_data.find()
+
+## Feature: Advance find() window for field offsets
+
+### Motivation
+- **Problem:** `batch_data.find(...)` scans the full batch for every field, and duplicates can match the wrong run.
+- **Why it matters:** For large batches (`N=500`), it turns into a quadratic scan and incorrect offsets.
+- **Evidence:**
+  - `batch_data.find(...)` runs `3×N` times and scans the full batch blob → **O(N×batch_size)**
+  - Identical JSON fragments (e.g., `{}`) can match earlier occurrences
+
+### Change
+- **Before:** serialize each field and search from byte 0 on every loop iteration.
+- **After:** pre-serialize field blobs once, then search from an advancing `current_pos`.
+- **Key idea:** keep a moving search window through `batch_data` to avoid rescans and ambiguity.
+
+### Implementation notes
+- **Files touched:** `ls_py_handler/api/routes/runs.py`
+- **Schema changes (if any):** none
+- **Correctness considerations:**
+  - ensures identical field values resolve to the correct sequential occurrence
+  - offsets now derived from the next match after the previous field, not from byte 0
+
+### Results
+- **Benchmarks (before → after):**
+  - GET 10kb: 101.6 ms → 109.4 ms
+  - GET 100kb: 108.3 ms → 105.7 ms
+  - POST 50×100kb: 549.0 ms → 464.6 ms
+  - POST 500×10kb: 1899.3 ms → 694.4 ms
+- **Notes:** Significant improvement in POST 500×10kb (63% reduction in time) due to eliminating the O(N×batch_size) quadratic search. GET remains stable as expected.
 
 
 
