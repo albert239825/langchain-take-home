@@ -7,16 +7,83 @@ A simple FastAPI server with endpoints for ingesting and fetching runs.
 - `POST /runs` endpoint to create new runs
 - `GET /runs/{id}` endpoint to retrieve run information by UUID
 
+## Repository Structure
+
+This project follows a clean, modular structure:
+
+```
+langchain-take-home/
+├── ls_py_handler/              # Main application package
+│   ├── __init__.py
+│   ├── main.py                 # FastAPI app initialization and startup
+│   ├── api/                    # API layer
+│   │   └── routes/
+│   │       └── runs.py         # Run endpoints (POST /runs, GET /runs/{id})
+│   └── config/                 # Configuration
+│       ├── settings.py         # Application settings (env-based)
+│       └── test_settings.py   # Test environment settings
+├── migrations/                 # Alembic database migrations
+│   ├── env.py                 # Alembic environment configuration
+│   └── versions/              # Migration scripts
+├── tests/                      # Test suite
+│   ├── test_runs.py           # Unit/integration tests for runs
+│   └── benchmarks/
+│       └── test_run_performance.py  # Performance benchmarks
+├── docker-compose-db.yaml     # Docker Compose for PostgreSQL & MinIO
+├── pyproject.toml              # Poetry dependencies and project config
+├── Makefile                   # Convenience commands
+└── README.md                  # This file
+```
+
+### Architecture Overview
+
+**Data Storage Strategy:**
+- **PostgreSQL**: Stores lightweight run metadata (id, trace_id, name) and S3 references
+- **MinIO (S3-compatible)**: Stores the actual run data (inputs, outputs, metadata) as JSON batches
+- **Hybrid Approach**: Large JSON fields are stored in S3 with byte-range references in PostgreSQL, enabling efficient partial reads
+
+**Key Components:**
+1. **FastAPI Application** (`main.py`): Sets up the API, includes routers, and initializes S3 bucket on startup
+2. **Run Routes** (`api/routes/runs.py`): Handles run creation and retrieval with S3 integration
+3. **Settings** (`config/settings.py`): Environment-based configuration using Pydantic Settings
+4. **Database Migrations**: Alembic manages PostgreSQL schema changes
+
+**Technology Stack:**
+- **FastAPI**: Modern async web framework
+- **PostgreSQL**: Relational database (via asyncpg)
+- **MinIO**: S3-compatible object storage
+- **Alembic**: Database migration tool
+- **Poetry**: Dependency management
+- **Ruff**: Linting and formatting
+- **pytest**: Testing framework
+
 ## Quick Start
 
 ```bash
 # 1. Install dependencies
 poetry install
 
-# 2. Start database services (required before running the server)
-make db-up
+2. **Start database services**
+   ```bash
+   make db-up
+   ```
+   This starts:
+   - PostgreSQL 15 on port `5432`
+   - MinIO (S3-compatible storage) on ports `9002` (API) and `9003` (Console)
+   
+   **Note**: The first time you run this, it may take a minute to download Docker images.
 
-# 3. Run migrations and start the server
+3. **Verify services are running** (optional)
+   ```bash
+   # Check Docker containers
+   docker ps
+   
+   # You should see containers for:
+   # - ls-py-run-handler-db-postgres-15-1
+   # - ls-py-run-handler-minio-1
+   ```
+
+# 4. Run migrations and start the server
 make server
 ```
 
