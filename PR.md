@@ -254,7 +254,7 @@ Assemble response dict
   - GET 100kb: 106.1 ms → 32.3 ms (70% faster)
   - POST 50×100kb: 278.2 ms → 218.4 ms (21% faster)
   - POST 500×10kb: 302.7 ms → 227.7 ms (25% faster)
-- Benchmark artifact: `.benchmarks/Darwin-CPython-3.11-64bit/0006_baseline.json`
+- Benchmark artifact: `.benchmarks/Darwin-CPython-3.11-64bit/0006_persistent_client.json`
 - **Notes:** Dramatic improvements for GET requests (70%+ reduction) due to eliminating per-request connection setup. POST requests show 20-25% improvements. The shared connection pool and HTTP keep-alive provide substantial latency reduction across all endpoints.
 
 ## Section 8: Test infrastructure for long-lived S3 client
@@ -288,6 +288,29 @@ Assemble response dict
 - Event loop remains consistent across lifespan context and test execution
 - Benchmark measurements remain valid (same HTTP path, no artificial overhead)
 - All tests pass with the shared client fixture
+
+## Section 9: Areas for future improvement
+
+**1. Database connection pooling (High impact - POST & GET)**
+
+`get_db_conn()` creates a fresh `asyncpg.connect()` per request, incurring TCP/auth handshake overhead each time. Moving to `asyncpg.create_pool()` at startup (stored in `app.state` like the S3 client) would eliminate per-request connection setup. For 500-run POST benchmarks, this could save hundreds of connection handshakes currently happening sequentially inside the COPY operation retry logic.
+
+**2. Reduce Pydantic overhead (Medium-High impact - POST)**
+
+The `Run` model performs full field validation on every request. For trusted inputs or high-throughput scenarios, accepting raw `List[dict]` with minimal manual validation (check required keys exist, UUID format) would bypass Pydantic's recursive validation/coercion. Alternative: use `model_construct()` to skip validation or switch to TypedDict for internal processing after initial parse.
+
+**3. Filesystem cache for hot batch segments (High impact - GET)**
+
+Add an LRU disk cache keyed by `run_id` or `(s3_key, start_offset, end_offset)`. Cache the raw JSON bytes from S3 Range GETs to skip S3 round-trips for frequently accessed runs. Use `diskcache` library or memory-mapped files with TTL/size-based eviction. Particularly valuable for dashboards or APIs that repeatedly fetch the same recent runs.
+
+
+
+
+
+
+---
+
+# Feature Addition Template
 
 ## Section x: feature fix
 ## Feature: <short name>  (e.g., “Eliminate O(N×batch_size) scans in POST”)
