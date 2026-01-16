@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -71,7 +70,6 @@ async def create_runs(
     object_key = f"batches/{batch_id}.json"
     batch_data, records = build_batch_with_offsets(
         runs,
-        settings.S3_BUCKET_NAME,
         object_key,
     )
 
@@ -86,7 +84,7 @@ async def create_runs(
     await db.copy_records_to_table(
         "runs",
         records=records,
-        columns=["id", "trace_id", "name", "inputs", "outputs", "metadata"],
+        columns=["id", "trace_id", "name", "s3_key", "start_offset", "end_offset"],
     )
 
     inserted_ids = [str(run.id) for run in runs]
@@ -102,10 +100,10 @@ async def get_run(
     """
     Get a run by its ID.
     """
-    # Fetch the run from the PG
+    # Fetch the run index from PG
     row = await db.fetchrow(
         """
-        SELECT id, trace_id, name, inputs, outputs, metadata
+        SELECT id, trace_id, name, s3_key, start_offset, end_offset
         FROM runs
         WHERE id = $1
         """,
@@ -115,67 +113,19 @@ async def get_run(
     if not row:
         raise HTTPException(status_code=404, detail=f"Run with ID {run_id} not found")
 
-    run_data = dict(row)
+    start_offset = row["start_offset"]
+    end_offset = row["end_offset"]
+    byte_range = f"bytes={start_offset}-{end_offset - 1}"
 
-    # Function to parse S3 reference
-    def parse_s3_ref(ref):
-        if not ref or not ref.startswith("s3://"):
-            return None, None, None, None
-
-        parts = ref.split("/")
-        bucket = parts[2]
-        key = "/".join(parts[3:]).split("#")[0]
-
-        if "#" in ref:
-            offset_part = ref.split("#")[1]
-            if ":" in offset_part and "/" in offset_part:
-                offsets, field = offset_part.split("/")
-                start_offset, end_offset = map(int, offsets.split(":"))
-                return bucket, key, (start_offset, end_offset), field
-
-        return bucket, key, None, None
-
-    # Function to fetch data from S3 based on reference with byte range
-    async def fetch_from_s3(ref):
-        if not ref or not ref.startswith("s3://"):
-            return {}
-
-        bucket, key, offsets, field = parse_s3_ref(ref)
-        if not bucket or not key or not offsets:
-            return {}
-
-        start_offset, end_offset = offsets
-        byte_range = f"bytes={start_offset}-{end_offset-1}"
-
-        try:
-            # Fetch only the required byte range
-            response = await s3.get_object(Bucket=bucket, Key=key, Range=byte_range)
-            async with response["Body"] as stream:
-                data = await stream.read()
-            try:
-                # The data should be a valid JSON object corresponding to the field
-                # (inputs, outputs, or metadata) without needing further extraction
-                return orjson.loads(data)
-            except Exception as parse_error:
-                print(f"Error parsing JSON fragment: {parse_error}")
-                print(f"Problematic data: {data}")
-                return {}
-
-        except Exception as e:
-            print(f"Error fetching S3 object with range: {e}")
-            return {}
-
-    inputs, outputs, metadata = await asyncio.gather(
-        fetch_from_s3(run_data["inputs"]),
-        fetch_from_s3(run_data["outputs"]),
-        fetch_from_s3(run_data["metadata"]),
-    )
-
-    return {
-        "id": str(run_data["id"]),
-        "trace_id": str(run_data["trace_id"]),
-        "name": run_data["name"],
-        "inputs": inputs,
-        "outputs": outputs,
-        "metadata": metadata,
-    }
+    try:
+        response = await s3.get_object(
+            Bucket=settings.S3_BUCKET_NAME,
+            Key=row["s3_key"],
+            Range=byte_range,
+        )
+        async with response["Body"] as stream:
+            payload = await stream.read()
+        return orjson.loads(payload)
+    except Exception as e:
+        print(f"Error fetching S3 object with range: {e}")
+        return {}
