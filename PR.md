@@ -91,9 +91,7 @@ Assemble response dict
 6) **Misc overheads (Low)**
    - String formatting of refs, list appends, loop/indexing, etc. Not worth focusing on early.
 
-## Section 2: Fixing looped batched_data.find()
-
-## Feature: Advance find() window for field offsets
+## Section 2: Advance find() window for field offsets
 
 ### Motivation
 - **Problem:** `batch_data.find(...)` scans the full batch for every field, and duplicates can match the wrong run.
@@ -125,8 +123,6 @@ Assemble response dict
 
 ## Section 3: Batch insert runs with COPY
 
-## Feature: Collapse N inserts into one COPY
-
 ### Motivation
 - **Problem:** one `INSERT ... RETURNING` per run causes N round-trips and unnecessary `RETURNING` overhead.
 - **Why it matters:** for N=500, the DB insert phase dominates wall time.
@@ -155,8 +151,6 @@ Assemble response dict
 
 ## Section 4: Eliminate redundant per-field serialization
 
-## Feature: Eliminate redundant per-field serialization
-
 ### Motivation
 - **Problem:** inputs/outputs/metadata are serialized once in the full batch and then serialized again per run for offset lookup.
 - **Why it matters:** for large batches this is 3×N extra JSON serialization work and allocation churn.
@@ -181,7 +175,7 @@ Assemble response dict
   - GET 100kb: 110.0 ms → 117.8 ms
   - POST 50×100kb: 434.7 ms → 282.5 ms
   - POST 500×10kb: 443.9 ms → 325.4 ms
-- **Notes:** POST latency drops notably; GET remains roughly flat.
+- **Notes:** POST latency drops by roughly 25–35%
 
 ## Section x: feature fix
 ## Feature: <short name>  (e.g., “Eliminate O(N×batch_size) scans in POST”)
