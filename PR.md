@@ -11,6 +11,8 @@ GET 100kb: ~108 ms (baseline)
 POST 50×100kb: ~549 ms (baseline)
 POST 500×10kb: ~1899 ms (baseline)
 
+Benchmark artifact: `.benchmarks/Darwin-CPython-3.11-64bit/0001_initial_baseline.json`
+
 Intuition: lot of overhead per call, evident by the fact that GET 10kb vs GET 100kb
 are close to performance and more POST calls are severely worse despite the same
 amount of total data being written
@@ -118,6 +120,7 @@ Assemble response dict
   - GET 100kb: 108.3 ms → 105.7 ms
   - POST 50×100kb: 549.0 ms → 464.6 ms
   - POST 500×10kb: 1899.3 ms → 694.4 ms
+- Benchmark artifact: `.benchmarks/Darwin-CPython-3.11-64bit/0002_advance_find_window.json`
 - **Notes:** Significant improvement in POST 500×10kb (63% reduction in time) due to eliminating the O(N×batch_size) quadratic search. GET remains stable as expected.
 
 
@@ -147,6 +150,7 @@ Assemble response dict
   - GET 100kb: 105.7 ms → 110.0 ms
   - POST 50×100kb: 464.6 ms → 434.7 ms
   - POST 500×10kb: 694.4 ms → 443.9 ms
+- Benchmark artifact: `.benchmarks/Darwin-CPython-3.11-64bit/0003_batch_insert_copy.json`
 - **Notes:** POST 500×10kb shows 36% reduction by eliminating 500 INSERT round-trips. Single COPY operation replaces N database queries.
 
 ## Section 4: Eliminate redundant per-field serialization
@@ -175,6 +179,7 @@ Assemble response dict
   - GET 100kb: 110.0 ms → 117.8 ms
   - POST 50×100kb: 434.7 ms → 282.5 ms
   - POST 500×10kb: 443.9 ms → 325.4 ms
+- Benchmark artifact: `.benchmarks/Darwin-CPython-3.11-64bit/0004_eliminate_redundant_serialization.json`
 - **Notes:** POST latency drops by roughly 25–35%
 
 ## Section 5: GET /runs/{id} bottlenecks (ranked) 
@@ -220,6 +225,7 @@ Assemble response dict
   - GET 100kb: 117.8 ms → 111.4 ms
   - POST 50×100kb: 282.5 ms → 284.1 ms
   - POST 500×10kb: 325.4 ms → 297.3 ms
+- Benchmark artifact: `.benchmarks/Darwin-CPython-3.11-64bit/0005_single_range_get.json`
 - **Notes:** Improvement is modest because the prior 3 Range GETs were done in parallel (critical path ≈ slowest request, not sum). Still reduces per-request S3 operations and JSON parses (3→1) and simplifies code.
 
 ## Section x: feature fix
