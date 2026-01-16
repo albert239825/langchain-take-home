@@ -194,6 +194,34 @@ Assemble response dict
 4) **Reference parsing + per-request helper function definitions (Low impact)**
    - `split()` parsing + nested function creation + `dict(row)` conversion are minor compared to network/I/O.
 
+## Section 6: Single Range GET per run
+
+### Motivation
+- **Problem:** GET `/runs/{id}` performs three S3 Range GETs (inputs/outputs/metadata) for every request.
+- **Why it matters:** Fixed per-request S3 overhead dominates latency; eliminating two calls is the largest win.
+- **Evidence:**
+  - GET 10KB vs 100KB are similar → overhead is in request count, not payload size.
+
+### Change
+- **Before:** store three field-level S3 ranges in Postgres and fetch them in parallel.
+- **After:** store a single run-level byte range (`start_offset`, `end_offset`) and fetch once.
+- **Key idea:** record run offsets while building the batch JSON, then Range GET the full run object.
+
+### Implementation notes
+- **Files touched:** `ls_py_handler/utils/batch_serializer.py`, `ls_py_handler/api/routes/runs.py`
+- **Schema changes (if any):** add `s3_key`, `start_offset`, `end_offset`; remove `inputs`, `outputs`, `metadata`
+- **Correctness considerations:**
+  - offsets are exact by construction (no substring search ambiguity)
+  - batch format remains a JSON array
+
+### Results
+- **Benchmarks (before → after):**
+  - GET 10kb: 109.8 ms → 107.1 ms
+  - GET 100kb: 117.8 ms → 111.4 ms
+  - POST 50×100kb: 282.5 ms → 284.1 ms
+  - POST 500×10kb: 325.4 ms → 297.3 ms
+- **Notes:** Improvement is modest because the prior 3 Range GETs were done in parallel (critical path ≈ slowest request, not sum). Still reduces per-request S3 operations and JSON parses (3→1) and simplifies code.
+
 ## Section x: feature fix
 ## Feature: <short name>  (e.g., “Eliminate O(N×batch_size) scans in POST”)
 
