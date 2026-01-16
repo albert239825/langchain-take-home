@@ -3,8 +3,7 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 import orjson
-from aiobotocore.session import get_session
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import UUID4, BaseModel, Field
 
 from ls_py_handler.config.settings import settings
@@ -37,17 +36,9 @@ async def get_db_conn():
         await conn.close()
 
 
-async def get_s3_client():
-    """Get an S3 client for MinIO."""
-    session = get_session()
-    async with session.create_client(
-        "s3",
-        endpoint_url=settings.S3_ENDPOINT_URL,
-        aws_access_key_id=settings.S3_ACCESS_KEY,
-        aws_secret_access_key=settings.S3_SECRET_KEY,
-        region_name=settings.S3_REGION,
-    ) as client:
-        yield client
+async def get_s3_client(request: Request):
+    """Get the shared S3 client from app state."""
+    return request.app.state.s3_client
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

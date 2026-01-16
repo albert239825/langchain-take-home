@@ -1,23 +1,14 @@
+from contextlib import asynccontextmanager
+
 from aiobotocore.session import get_session
 from fastapi import FastAPI
 
 from ls_py_handler.api.routes.runs import router as runs_router
 from ls_py_handler.config.settings import settings
 
-app = FastAPI(
-    title=settings.APP_TITLE,
-    description=settings.APP_DESCRIPTION,
-    version=settings.APP_VERSION,
-)
-
-# Include routers
-app.include_router(runs_router)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize resources when the application starts."""
-    # Create S3 bucket if it doesn't exist
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize and share long-lived resources."""
     session = get_session()
     async with session.create_client(
         "s3",
@@ -31,6 +22,20 @@ async def startup_event():
             print(f"Created S3 bucket: {settings.S3_BUCKET_NAME}")
         except Exception:
             print("Tried to create S3 bucket, but it already exists. No action taken.")
+
+        app.state.s3_client = s3
+        yield
+
+
+app = FastAPI(
+    title=settings.APP_TITLE,
+    description=settings.APP_DESCRIPTION,
+    version=settings.APP_VERSION,
+    lifespan=lifespan,
+)
+
+# Include routers
+app.include_router(runs_router)
 
 
 @app.get("/")
