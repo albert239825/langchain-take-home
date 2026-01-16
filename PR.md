@@ -65,6 +65,28 @@ Parse each JSON fragment (orjson.loads)
   ↓
 Assemble response dict
 
-## Section 1: Bottleneck Areas
+## Section 1: POST /runs bottlenecks (ranked) 
 
-### POST /runs bottlenecks
+1) **`batch_data.find(field_json_data)` inside loop (Very High impact)**
+   - Called **3×N** times; each call scans the **entire batch JSON blob**.
+   - Roughly **O(3 × N × batch_size_bytes)** → explodes for `N=500`.
+   - Also brittle: identical JSON fragments can match earlier occurrences → wrong offsets.
+
+2) **One DB round-trip per run: `INSERT ... RETURNING` in a loop (Very High impact)**
+   - **N inserts = N network round trips** (500 in the 500-run benchmark).
+   - `RETURNING id` is unnecessary (we already have `run.id`) and adds overhead.
+   - Fix: batch insert / COPY to collapse to ~1 DB operation.
+
+3) **Repeated per-field serialization: `orjson.dumps(inputs/outputs/metadata)` (High impact)**
+   - After serializing the whole batch once, we **re-serialize 3 big fields per run** (3×N extra work).
+   - Adds CPU + allocation churn; ~15MB extra JSON serialization in both provided benchmarks.
+
+4) **Pydantic `model_dump()` + building `run_dicts` (Medium impact)**
+   - Materializes large nested dicts for every run before serialization.
+   - Real cost for 100KB fields, but typically secondary to (1)-(3).
+
+5) **S3 `put_object` of full batch (Medium, mostly unavoidable)**
+   - Required by constraints (must write full batch). Can optimize around it (streaming/tempfile), but not eliminate.
+
+6) **Misc overheads (Low)**
+   - String formatting of refs, list appends, loop/indexing, etc. Not worth focusing on early.
