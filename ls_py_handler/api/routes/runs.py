@@ -82,7 +82,7 @@ async def create_runs(
     )
 
     # Store references in PG
-    inserted_ids = []
+    records = []
     field_serializations = []
     for run_dict in run_dicts:
         run_fields = {}
@@ -108,21 +108,24 @@ async def create_runs(
             else:
                 field_refs[field] = ""
 
-        run_id = await db.fetchval(
-            """
-            INSERT INTO runs (id, trace_id, name, inputs, outputs, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id
-            """,
-            run.id,
-            run.trace_id,
-            run.name,
-            field_refs["inputs"],
-            field_refs["outputs"],
-            field_refs["metadata"],
+        records.append(
+            (
+                run.id,
+                run.trace_id,
+                run.name,
+                field_refs["inputs"],
+                field_refs["outputs"],
+                field_refs["metadata"],
+            )
         )
-        inserted_ids.append(str(run_id))
 
+    await db.copy_records_to_table(
+        "runs",
+        records=records,
+        columns=["id", "trace_id", "name", "inputs", "outputs", "metadata"],
+    )
+
+    inserted_ids = [str(run.id) for run in runs]
     return {"status": "created", "run_ids": inserted_ids}
 
 
