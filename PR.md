@@ -90,3 +90,37 @@ Assemble response dict
 
 6) **Misc overheads (Low)**
    - String formatting of refs, list appends, loop/indexing, etc. Not worth focusing on early.
+
+## Section 2: Fixing looped batched_data.find()
+
+
+
+
+## Section x: feature fix
+## Feature: <short name>  (e.g., “Eliminate O(N×batch_size) scans in POST”)
+
+### Motivation
+- **Problem:** <1 sentence describing what’s slow/brittle>
+- **Why it matters:** <1 sentence tying to benchmarks / scaling / call count>
+- **Evidence:** <1–2 bullets with concrete “counts” or complexity>
+  - e.g., `batch_data.find(...)` runs `3×N` times and scans the full batch blob → **O(N×batch_size)**
+
+### Change
+- **Before:** <1–2 bullets describing old behavior>
+- **After:** <1–2 bullets describing new behavior>
+- **Key idea:** <one crisp statement, e.g. “compute offsets while writing, not by searching bytes”>
+
+### Implementation notes
+- **Files touched:** `<path1>`, `<path2>`
+- **Schema changes (if any):** <new columns/tables + what they store>
+- **Correctness considerations:** <1–2 bullets>
+  - e.g., “avoids ambiguous matches when identical JSON fragments appear”
+  - e.g., “offsets now derived from write position, not string search”
+
+### Results
+- **Benchmarks (before → after):**
+  - GET 10kb: `<before>` → `<after>`
+  - GET 100kb: `<before>` → `<after>`
+  - POST 50×100kb: `<before>` → `<after>`
+  - POST 500×10kb: `<before>` → `<after>`
+- **Notes:** <1 line interpreting change; optional>
