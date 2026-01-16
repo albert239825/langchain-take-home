@@ -28,19 +28,18 @@ def _json_payload(value: Any) -> bytes:
 
 def build_batch_with_offsets(
     runs: Iterable["Run"],
-    bucket: str,
     object_key: str,
-) -> Tuple[bytes, List[Tuple[Any, Any, str, str, str, str]]]:
+) -> Tuple[bytes, List[Tuple[Any, Any, str, str, int, int]]]:
     parts = [_LIST_START]
     current_pos = len(_LIST_START)
-    records: List[Tuple[Any, Any, str, str, str, str]] = []
-    object_prefix = f"s3://{bucket}/{object_key}"
+    records: List[Tuple[Any, Any, str, str, int, int]] = []
 
     for index, run in enumerate(runs):
         if index:
             parts.append(_COMMA)
             current_pos += len(_COMMA)
 
+        run_start = current_pos
         parts.append(_RUN_START)
         current_pos += len(_RUN_START)
         run_id_json = orjson.dumps(run.id)
@@ -65,36 +64,31 @@ def build_batch_with_offsets(
 
         parts.append(_INPUTS_PREFIX)
         current_pos += len(_INPUTS_PREFIX)
-        inputs_start = current_pos
         parts.append(inputs_json)
-        inputs_end = inputs_start + len(inputs_json)
-        current_pos = inputs_end
+        current_pos += len(inputs_json)
 
         parts.append(_OUTPUTS_PREFIX)
         current_pos += len(_OUTPUTS_PREFIX)
-        outputs_start = current_pos
         parts.append(outputs_json)
-        outputs_end = outputs_start + len(outputs_json)
-        current_pos = outputs_end
+        current_pos += len(outputs_json)
 
         parts.append(_METADATA_PREFIX)
         current_pos += len(_METADATA_PREFIX)
-        metadata_start = current_pos
         parts.append(metadata_json)
-        metadata_end = metadata_start + len(metadata_json)
-        current_pos = metadata_end
+        current_pos += len(metadata_json)
 
         parts.append(_RUN_END)
         current_pos += len(_RUN_END)
+        run_end = current_pos
 
         records.append(
             (
                 run.id,
                 run.trace_id,
                 run.name,
-                f"{object_prefix}#{inputs_start}:{inputs_end}/inputs",
-                f"{object_prefix}#{outputs_start}:{outputs_end}/outputs",
-                f"{object_prefix}#{metadata_start}:{metadata_end}/metadata",
+                object_key,
+                run_start,
+                run_end,
             )
         )
 
