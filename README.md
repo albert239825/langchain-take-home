@@ -83,7 +83,7 @@ poetry install
    # - ls-py-run-handler-minio-1
    ```
 
-# 3. Run migrations and start the server
+# 4. Run migrations and start the server
 make server
 ```
 

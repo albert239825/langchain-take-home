@@ -211,3 +211,6 @@ __marimo__/
 
 # Pyenv
 .python-version
+
+# hidden directories
+.data/
