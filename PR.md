@@ -177,6 +177,23 @@ Assemble response dict
   - POST 500×10kb: 443.9 ms → 325.4 ms
 - **Notes:** POST latency drops by roughly 25–35%
 
+## Section 5: GET /runs/{id} bottlenecks (ranked) 
+
+1) **3 separate S3 Range GETs per request (Very High impact)**
+   - Always issues **3 `get_object` calls** (inputs/outputs/metadata), even when they live in the same batch object.
+   - Benchmarks show **10KB vs 100KB are close** → fixed per-request overhead dominates → reducing calls (3→1) is the biggest win.
+
+2) **Potential lack of S3 client/session reuse (High→Medium impact)**
+   - If `get_s3_client` creates a new client/session per request, you pay extra connection/pool overhead.
+   - Reusing a long-lived aiobotocore session/client can materially cut GET latency.
+
+3) **Decode/allocate 3× per request: `stream.read()` + `orjson.loads()` (Medium impact)**
+   - Reads full fragment into memory and decodes JSON **three times**.
+   - Likely secondary here (since payload size barely changes timings), but becomes a win if combined into one fetch + one decode.
+
+4) **Reference parsing + per-request helper function definitions (Low impact)**
+   - `split()` parsing + nested function creation + `dict(row)` conversion are minor compared to network/I/O.
+
 ## Section x: feature fix
 ## Feature: <short name>  (e.g., “Eliminate O(N×batch_size) scans in POST”)
 
