@@ -125,6 +125,36 @@ Assemble response dict
 
 
 
+## Section 3: Batch insert runs with COPY
+
+## Feature: Collapse N inserts into one COPY
+
+### Motivation
+- **Problem:** one `INSERT ... RETURNING` per run causes N round-trips and unnecessary `RETURNING` overhead.
+- **Why it matters:** for N=500, the DB insert phase dominates wall time.
+- **Evidence:**
+  - `N` inserts → `N` network round-trips
+
+### Change
+- **Before:** `fetchval(INSERT ... RETURNING)` inside the run loop.
+- **After:** collect all records in memory and bulk insert with `copy_records_to_table()`.
+- **Key idea:** use PostgreSQL COPY to reduce inserts to a single round-trip.
+
+### Implementation notes
+- **Files touched:** `ls_py_handler/api/routes/runs.py`
+- **Schema changes (if any):** none
+- **Correctness considerations:**
+  - preserves existing IDs by inserting the provided `run.id` values
+  - avoids relying on `RETURNING` since IDs are already known
+
+### Results
+- **Benchmarks (before → after):**
+  - GET 10kb: 109.4 ms → 107.6 ms
+  - GET 100kb: 105.7 ms → 110.0 ms
+  - POST 50×100kb: 464.6 ms → 434.7 ms
+  - POST 500×10kb: 694.4 ms → 443.9 ms
+- **Notes:** POST 500×10kb shows 36% reduction by eliminating 500 INSERT round-trips. Single COPY operation replaces N database queries.
+
 ## Section x: feature fix
 ## Feature: <short name>  (e.g., “Eliminate O(N×batch_size) scans in POST”)
 
