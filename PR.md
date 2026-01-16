@@ -11,6 +11,30 @@ GET 100kb: ~113 ms
 POST 50×100kb: ~550 ms
 POST 500×10kb: ~1900 ms
 
+Intuition: lot of overhead per call, evident by the fact that GET 10kb vs GET 100kb
+are close to performance and more POST calls are severely worse despite the same
+amount of total data being written
+
+### Data Model & Hybrid Storage Architecture
+
+#### Core Data Model
+Each **Run** represents a LangChain execution trace:
+- **Lightweight metadata**: `id`, `trace_id`, `name` (stored in PostgreSQL)
+- **Heavy payload fields**: `inputs`, `outputs`, `metadata` (JSON dictionaries, potentially 100KB+ each)
+
+#### Storage Strategy: Two-Tier Hybrid System
+
+**Tier 1: PostgreSQL (Index)**
+- Stores lightweight metadata and **S3 reference strings**
+- S3 references encode: `s3://bucket/key#start_byte:end_byte/field_name`
+- Example: `s3://runs/batches/xyz.json#1024:5120/inputs`
+- Keeps database lean and queries fast
+
+**Tier 2: S3/MinIO (Data Lake)**
+- Stores actual run data as batch JSON files
+- One batch file contains multiple runs
+- Accessed via HTTP Range requests for efficient partial reads
+
 ### Mapping out the dataflow
 POST /runs
 Request → FastAPI (in-memory parse) → List[Run] Pydantic models
@@ -40,3 +64,7 @@ Parse S3 references (extract bucket, key, byte ranges)
 Parse each JSON fragment (orjson.loads)
   ↓
 Assemble response dict
+
+## Section 1: Bottleneck Areas
+
+### POST /runs bottlenecks
