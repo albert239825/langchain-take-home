@@ -228,6 +228,67 @@ Assemble response dict
 - Benchmark artifact: `.benchmarks/Darwin-CPython-3.11-64bit/0005_single_range_get.json`
 - **Notes:** Improvement is modest because the prior 3 Range GETs were done in parallel (critical path ≈ slowest request, not sum). Still reduces per-request S3 operations and JSON parses (3→1) and simplifies code.
 
+## Section 7: Reuse S3 client across requests
+
+### Motivation
+- **Problem:** `get_s3_client()` creates a new aiobotocore session and client per request, then immediately closes them.
+- **Why it matters:** Connection setup overhead affects both POST and GET latency.
+- **Evidence:**
+  - New TCP connection + SSL handshake + HTTP connection pool creation happens on every request
+
+### Change
+- **Before:** `get_s3_client()` yields a new client from a new session in an async context manager (per-request).
+- **After:** Lifespan context manager creates one session/client at startup, stores in `app.state`, lightweight dependency retrieves it.
+- **Key idea:** Reuse a single aiobotocore client throughout the application lifecycle.
+
+### Implementation notes
+- **Files touched:** `ls_py_handler/main.py`, `ls_py_handler/api/routes/runs.py`
+- **Schema changes (if any):** none
+- **Correctness considerations:**
+  - Client properly closed on shutdown via `async with` in lifespan
+  - Migrates from deprecated `@app.on_event("startup")` to modern `lifespan` pattern
+
+### Results
+- **Benchmarks (before → after):**
+  - GET 10kb: 100.4 ms → 27.2 ms (73% faster)
+  - GET 100kb: 106.1 ms → 32.3 ms (70% faster)
+  - POST 50×100kb: 278.2 ms → 218.4 ms (21% faster)
+  - POST 500×10kb: 302.7 ms → 227.7 ms (25% faster)
+- Benchmark artifact: `.benchmarks/Darwin-CPython-3.11-64bit/0006_baseline.json`
+- **Notes:** Dramatic improvements for GET requests (70%+ reduction) due to eliminating per-request connection setup. POST requests show 20-25% improvements. The shared connection pool and HTTP keep-alive provide substantial latency reduction across all endpoints.
+
+## Section 8: Test infrastructure for long-lived S3 client
+
+### Motivation
+- **Problem:** The lifespan context manager only runs when FastAPI is started by an ASGI server, not during test client creation.
+- **Why it matters:** Tests using `AsyncClient(app=app)` never initialize `app.state.s3_client`, causing `AttributeError`.
+- **Evidence:**
+  - `AsyncClient` does not trigger lifespan handlers automatically
+  - Tests were failing with "'State' object has no attribute 's3_client'"
+
+### Change
+- **Before:** Each test file created its own inline `AsyncClient(app=app)` instance.
+- **After:** Shared `client` fixture in `conftest.py` explicitly enters the lifespan context before creating the test client.
+- **Key idea:** Manually manage the lifespan context in test fixtures to ensure `app.state` is properly initialized.
+
+### Implementation notes
+- **Files touched:** `tests/conftest.py` (new), `tests/test_runs.py`, `tests/benchmarks/test_run_performance.py`
+- **Test fixture changes:**
+  - Created `tests/conftest.py` with shared async client fixture
+  - Fixture uses `async with lifespan(app):` to initialize app state before client creation
+  - Uses `ASGITransport` for proper ASGI handling
+- **Benchmark test adaptations:**
+  - Simplified `aio_benchmark` to use existing event loop instead of creating new ones
+  - Removed `asyncio.new_event_loop()` calls that caused "Future attached to different loop" errors
+  - Changed benchmark tests from `async def` to `def` to avoid "event loop already running" errors
+  - Used `loop.run_until_complete()` for GET test setup instead of `asyncio.run()`
+
+### Correctness considerations
+- Tests now properly initialize the long-lived S3 client exactly as production does
+- Event loop remains consistent across lifespan context and test execution
+- Benchmark measurements remain valid (same HTTP path, no artificial overhead)
+- All tests pass with the shared client fixture
+
 ## Section x: feature fix
 ## Feature: <short name>  (e.g., “Eliminate O(N×batch_size) scans in POST”)
 
