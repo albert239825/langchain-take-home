@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import UUID4, BaseModel, Field
 
 from ls_py_handler.config.settings import settings
+from ls_py_handler.utils.batch_serializer import build_batch_with_offsets
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -67,11 +68,12 @@ async def create_runs(
 
     # Prepare the batch for S3 upload
     batch_id = str(uuid.uuid4())
-
-    run_dicts = [run.model_dump() for run in runs]
-    batch_data = orjson.dumps(run_dicts)
-
     object_key = f"batches/{batch_id}.json"
+    batch_data, records = build_batch_with_offsets(
+        runs,
+        settings.S3_BUCKET_NAME,
+        object_key,
+    )
 
     # Upload the batch data
     await s3.put_object(
@@ -80,44 +82,6 @@ async def create_runs(
         Body=batch_data,
         ContentType="application/json",
     )
-
-    # Store references in PG
-    records = []
-    field_serializations = []
-    for run_dict in run_dicts:
-        run_fields = {}
-        for field in ["inputs", "outputs", "metadata"]:
-            run_fields[field] = orjson.dumps(run_dict.get(field, {}))
-        field_serializations.append(run_fields)
-
-    current_pos = 0
-    for i, run in enumerate(runs):
-        # Calculate specific offsets for each field in the JSON using a loop
-        field_refs = {}
-        for field in ["inputs", "outputs", "metadata"]:
-            field_json_data = field_serializations[i][field]
-            field_start_in_run = batch_data.find(field_json_data, current_pos)
-
-            if field_start_in_run != -1:
-                field_start = field_start_in_run
-                field_end = field_start + len(field_json_data)
-                field_refs[
-                    field
-                ] = f"s3://{settings.S3_BUCKET_NAME}/{object_key}#{field_start}:{field_end}/{field}"
-                current_pos = field_end
-            else:
-                field_refs[field] = ""
-
-        records.append(
-            (
-                run.id,
-                run.trace_id,
-                run.name,
-                field_refs["inputs"],
-                field_refs["outputs"],
-                field_refs["metadata"],
-            )
-        )
 
     await db.copy_records_to_table(
         "runs",
