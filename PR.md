@@ -1,4 +1,21 @@
 # PR message for ingest optimization
+## TL;DR
+
+- **Key changes**
+  - Eliminated quadratic `batch_data.find(...)` scans in POST by computing offsets while writing.
+  - Replaced per-run `INSERT ... RETURNING` loop with a single **Postgres COPY** batch insert.
+  - Removed redundant `orjson.dumps()` work (serialize heavy fields once, reuse emitted bytes for offsets).
+  - Reduced GET overhead by moving to **run-level** S3 ranges (3→1 Range GET) and **reusing a long-lived S3 client** (keep-alive / connection pooling).
+
+- **Performance (baseline → final)**
+  - **GET 10kb:** ~102 ms → **27.2 ms** (**3.8× faster**)
+  - **GET 100kb:** ~108 ms → **32.3 ms** (**3.3× faster**)
+  - **POST 50×100kb:** ~549 ms → **218.4 ms** (**2.5× faster**)
+  - **POST 500×10kb:** ~1899 ms → **227.7 ms** (**8.3× faster**)
+
+- **Constraints preserved**
+  - Same API behavior: `POST /runs` (batch create), `GET /runs/{id}` (fetch single)
+  - Still writes the **entire batch** to object storage
 
 ## Section 0 - baseline & constraints
 
