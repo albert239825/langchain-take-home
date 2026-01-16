@@ -99,6 +99,18 @@ async def get_run(
 ):
     """
     Get a run by its ID.
+
+    Returns a complete run object with all fields:
+    - id: UUID (string)
+    - trace_id: UUID (string)
+    - name: string
+    - inputs: dict
+    - outputs: dict
+    - metadata: dict
+
+    The run is fetched from S3 using a single Range GET request.
+    See `ls_py_handler.utils.batch_serializer.build_batch_with_offsets` for
+    details on how runs are stored in batch JSON files.
     """
     # Fetch the run index from PG
     row = await db.fetchrow(
@@ -125,6 +137,7 @@ async def get_run(
         )
         async with response["Body"] as stream:
             payload = await stream.read()
+        # Parse and return the complete run object (id, trace_id, name, inputs, outputs, metadata)
         return orjson.loads(payload)
     except Exception as e:
         print(f"Error fetching S3 object with range: {e}")
