@@ -123,8 +123,6 @@ Assemble response dict
 - **Notes:** Significant improvement in POST 500×10kb (63% reduction in time) due to eliminating the O(N×batch_size) quadratic search. GET remains stable as expected.
 
 
-
-
 ## Section 3: Batch insert runs with COPY
 
 ## Feature: Collapse N inserts into one COPY
@@ -154,6 +152,36 @@ Assemble response dict
   - POST 50×100kb: 464.6 ms → 434.7 ms
   - POST 500×10kb: 694.4 ms → 443.9 ms
 - **Notes:** POST 500×10kb shows 36% reduction by eliminating 500 INSERT round-trips. Single COPY operation replaces N database queries.
+
+## Section 4: Eliminate redundant per-field serialization
+
+## Feature: Eliminate redundant per-field serialization
+
+### Motivation
+- **Problem:** inputs/outputs/metadata are serialized once in the full batch and then serialized again per run for offset lookup.
+- **Why it matters:** for large batches this is 3×N extra JSON serialization work and allocation churn.
+- **Evidence:**
+  - `orjson.dumps(inputs/outputs/metadata)` runs `3×N` times after a full batch serialization.
+
+### Change
+- **Before:** serialize the entire batch, then re-serialize each field and search bytes to find offsets.
+- **After:** build the batch JSON incrementally while tracking offsets, serializing each field only once.
+- **Key idea:** compute offsets while writing, not by searching or re-serializing.
+
+### Implementation notes
+- **Files touched:** `ls_py_handler/api/routes/runs.py`, `ls_py_handler/utils/batch_serializer.py`
+- **Schema changes (if any):** none
+- **Correctness considerations:**
+  - offsets come from the exact write position, avoiding ambiguity when JSON fragments repeat
+  - JSON structure matches prior output ordering for `id`, `trace_id`, `name`, `inputs`, `outputs`, `metadata`
+
+### Results
+- **Benchmarks (before → after):**
+  - GET 10kb: 107.6 ms → 109.8 ms
+  - GET 100kb: 110.0 ms → 117.8 ms
+  - POST 50×100kb: 434.7 ms → 282.5 ms
+  - POST 500×10kb: 443.9 ms → 325.4 ms
+- **Notes:** POST latency drops notably; GET remains roughly flat.
 
 ## Section x: feature fix
 ## Feature: <short name>  (e.g., “Eliminate O(N×batch_size) scans in POST”)
