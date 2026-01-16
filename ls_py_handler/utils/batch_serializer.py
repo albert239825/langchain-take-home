@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, List, Tuple, TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable, List, Tuple
 
 import orjson
 
